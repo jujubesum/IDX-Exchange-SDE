@@ -1,8 +1,10 @@
 const express = require('express');
 const pool = require('./db');
+const properties = require('./routes/properties');
 
 const app = express();
 app.use(express.json());
+app.use('/api/properties', properties);
 var query = "SELECT 1;"
 
 app.get('/health', async (req, res) => {
