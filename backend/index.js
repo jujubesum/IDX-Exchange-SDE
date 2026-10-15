@@ -4,6 +4,17 @@ const properties = require('./routes/properties');
 
 const app = express();
 app.use(express.json());
+
+
+app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', ()=>{
+        console.log('Request type:', req.method, 'URL:', req.originalUrl, "Status Code:", res.statusCode, 'Timestamp:', new Date().toISOString(), "Ms Duration:", Date.now()-start);
+    });
+    
+    next();
+});
+
 app.use('/api/properties', properties);
 var query = "SELECT 1;"
 
