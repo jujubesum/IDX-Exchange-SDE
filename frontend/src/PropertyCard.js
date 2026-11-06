@@ -1,5 +1,20 @@
 import React from 'react';
 
+function getFirstPhoto(photos) {
+  try {
+    const parsed = typeof photos === 'string' ? JSON.parse(photos) : photos;
+    if (!Array.isArray(parsed)) return null;
+
+    const isPhoto = (url) =>
+      typeof url === 'string' &&
+      (/\/PHOTO-/i.test(url) || /\.(jpe?g|png|webp|gif)(\?|$)/i.test(url));
+
+    return parsed.find(isPhoto) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export default function PropertyCard({ property }) {
     let photos = [];
 
@@ -9,8 +24,7 @@ export default function PropertyCard({ property }) {
         photos = [];
     }
 
-    const firstPhoto = photos[0];
-
+    const firstPhoto = getFirstPhoto(property.L_Photos);
     return (
         <div className="property-card">
             {firstPhoto ? (

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { fetchProperties } from './api/client.js';
 import PropertyCard from './PropertyCard';
 import PropertyFilters from './PropertyFilters';
+import Pagination from './Pagination';
 
 export default function ListingsPage() {
     const [properties, setProperties] = useState([]);
@@ -9,20 +10,34 @@ export default function ListingsPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [filters, setFilters] = useState({});
+    const [currentPage, setCurrentPage] = useState(1);
+    const ITEMS_PER_PAGE = 20;         
+    const totalPages = Math.ceil(total / ITEMS_PER_PAGE);
+    const start = (currentPage - 1) * ITEMS_PER_PAGE + 1;
+    const end = Math.min(currentPage * ITEMS_PER_PAGE, total);
+
+    function handleSearch(newFilters){
+        setFilters(newFilters);
+        setCurrentPage(1);
+    }
+
+    function handlePageChange(page){
+        setCurrentPage(page);
+        window.scrollTo(0, 0);
+    }
 
     useEffect(() => {
         let ignore = false;
 
         async function loadProperties() {
-            const params = new URLSearchParams(window.location.search);
             try {
                 setLoading(true);
                 setError(null);
 
                 const data = await fetchProperties({
                     ...filters,
-                    limit: params.get("limit") || 20,
-                    offset: params.get("offset") || 0
+                    limit: ITEMS_PER_PAGE,
+                    offset: (currentPage - 1) * ITEMS_PER_PAGE,
                 });
 
                 if (ignore) return;
@@ -40,13 +55,13 @@ export default function ListingsPage() {
         return () => {
             ignore = true;
         };
-    }, [filters]);
+    }, [filters, currentPage]);
 
     return (
         <div>
             <h1>Property Listings</h1>
 
-            <PropertyFilters onSearch={setFilters} />
+            <PropertyFilters onSearch={handleSearch} />
 
             {loading && <p>Loading properties...</p>}
 
@@ -59,7 +74,7 @@ export default function ListingsPage() {
 
             {!loading && !error && (
                 <>
-                    <p>Showing {properties.length} of {total} properties</p>
+                    <p>Showing {start}-{end} of {total} properties</p>
 
                     {properties.length === 0 ? (
                         <p>
@@ -76,6 +91,12 @@ export default function ListingsPage() {
                             ))}
                         </div>
                     )}
+
+                    <Pagination
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        onPageChange={handlePageChange}
+                    />
                 </>
             )}
         </div>
