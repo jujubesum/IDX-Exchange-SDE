@@ -1,5 +1,13 @@
+// Drop '', null and undefined so the backend never receives empty params.
+// A value of 0 is kept (e.g. offset=0).
+function removeEmpty(params) {
+    return Object.fromEntries(
+        Object.entries(params).filter(([, value]) => value !== '' && value != null)
+    );
+}
+
 export async function fetchProperties(params = {}) {
-    const query = new URLSearchParams(params).toString();
+    const query = new URLSearchParams(removeEmpty(params)).toString();
     const url = query
         ? `/api/properties?${query}`
         : '/api/properties';
