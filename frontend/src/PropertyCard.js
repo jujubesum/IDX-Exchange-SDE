@@ -1,58 +1,36 @@
 import React from 'react';
-
-function getFirstPhoto(photos) {
-  try {
-    const parsed = typeof photos === 'string' ? JSON.parse(photos) : photos;
-    if (!Array.isArray(parsed)) return null;
-
-    const isPhoto = (url) =>
-      typeof url === 'string' &&
-      (/\/PHOTO-/i.test(url) || /\.(jpe?g|png|webp|gif)(\?|$)/i.test(url));
-
-    return parsed.find(isPhoto) ?? null;
-  } catch {
-    return null;
-  }
-}
-
+import { Link } from 'react-router-dom';
+import PropertyImageCarousel from './PropertyImageCarousel';
+import { formatPrice } from './format';
+ 
 export default function PropertyCard({ property }) {
-    let photos = [];
-
-    try {
-        photos = JSON.parse(property.L_Photos || "[]");
-    } catch (error) {
-        photos = [];
-    }
-
-    const firstPhoto = getFirstPhoto(property.L_Photos);
+    // LM_Dec_3 arrives as a string like "5.0"
+    const baths = Number(property.LM_Dec_3);
+    const bathsText =
+        property.LM_Dec_3 == null || !Number.isFinite(baths) ? 'N/A' : String(baths);
+ 
     return (
-        <div className="property-card">
-            {firstPhoto ? (
-                <img
-                    src={firstPhoto}
+        <Link
+            to={`/property/${property.L_ListingID}`}
+            style={{ color: 'inherit', textDecoration: 'none', display: 'block' }}
+        >
+            <div className="property-card">
+                <PropertyImageCarousel
+                    photos={property.L_Photos}
                     alt={`Property at ${property.L_Address}`}
-                    className="property-image"
                 />
-            ) : (
-                <div className="property-image-placeholder">
-                    No photo available
+ 
+                <div className="property-details">
+                    <h2>{formatPrice(property.L_SystemPrice)}</h2>
+ 
+                    <p>{property.L_Address}</p>
+                    <p>{property.L_City}, {property.L_State} {property.L_Zip}</p>
+ 
+                    <p>Beds: {property.L_Keyword2 ?? 'N/A'}</p>
+                    <p>Baths: {bathsText}</p>
+                    <p>Square feet: {property.LM_Int2_3 ?? 'N/A'}</p>
                 </div>
-            )}
-
-            <div className="property-details">
-                <h2>
-                    {Number(property.L_SystemPrice).toLocaleString("en-US", {
-                        style: "currency",
-                        currency: "USD",
-                        maximumFractionDigits: 0
-                    })}
-                </h2>
-
-                <p>{property.L_Address}</p>
-                <p>{property.L_City}, {property.L_State} {property.L_Zip}</p>
-
-                <p>Square feet: {property.LM_Int2_3 ?? "N/A"}</p>
             </div>
-        </div>
+        </Link>
     );
 }

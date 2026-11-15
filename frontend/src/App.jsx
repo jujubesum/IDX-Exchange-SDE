@@ -1,25 +1,25 @@
-
 import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
 import ListingsPage from './ListingsPage';
-import "./App.css";
-
+import PropertyDetailPage from './PropertyDetailPage';
+import './App.css';
+ 
 function NotFound() {
     return (
-        <div style={{ padding: '40px', textAlign: 'center' }}>
-            <h1>404 - Invalid Route</h1>
-            <p>The page you are looking for does not exist.</p>
-            <a href="/">Back to Listings</a>
+        <div style={{ padding: '20px' }}>
+            <h2>Page not found</h2>
+            <p>That page doesn't exist.</p>
+            <Link to="/">Back to listings</Link>
         </div>
     );
 }
-
+ 
 export default function App() {
     return (
         <BrowserRouter>
             <Routes>
                 <Route path="/" element={<ListingsPage />} />
-                <Route path="/api/properties" element={<ListingsPage />} />
+                <Route path="/property/:id" element={<PropertyDetailPage />} />
                 <Route path="*" element={<NotFound />} />
             </Routes>
         </BrowserRouter>
