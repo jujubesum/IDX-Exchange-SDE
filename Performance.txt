@@ -1,0 +1,112 @@
+Week 9 Part B - Query Performance Notes
+ 
+Table: rets_property, about 38,000 rows. MySQL 8.
+ 
+ 
+1. EXPLAIN on the most complex filter query
+ 
+The listings route builds one query from up to six optional filters and always ends with ORDER BY id ASC LIMIT ? OFFSET ?. The most complex combination I tested was city + beds + price range:
+ 
+  EXPLAIN
+  SELECT * FROM rets_property
+  WHERE L_City = 'Beverly Hills'
+    AND L_Keyword2 = 4
+    AND L_SystemPrice >= 1000000 AND L_SystemPrice <= 5000000
+  ORDER BY id ASC LIMIT 20 OFFSET 0;
+ 
+Output before I added any new index:
+ 
+  id: 1
+  select_type: SIMPLE
+  table: rets_property
+  partitions: NULL
+  type: range
+  possible_keys: idx_L_City, idx_property_price, idx_property_beds, idx_city_price
+  key: idx_city_price
+  key_len: 208
+  ref: NULL
+  rows: 109
+  filtered: 50.00
+  Extra: Using index condition; Using where; Using filesort
+ 
+What each column means, using this output:
+ 
+  id - which SELECT in the statement the row is about. It is 1 because there is only one SELECT.
+  select_type - the kind of SELECT. SIMPLE means no subqueries or unions.
+  table - the table being read.
+  partitions - which partitions are used. NULL because the table is not partitioned.
+  type - how MySQL finds the rows. From best to worst: const, eq_ref, ref, range, index, ALL. Here it is range, so MySQL scans a range of an index instead of reading the whole table.
+  possible_keys - the indexes MySQL could have used. Here: city, price, beds, and the city+price composite.
+  key - the index it actually picked, idx_city_price.
+  key_len - how many bytes of the index are used. 208 means both columns of (L_City, L_SystemPrice) are used.
+  ref - what the index is compared to. NULL because this is a range, not a single value lookup.
+  rows - how many rows MySQL estimates it has to examine. 109 out of about 38,000.
+  filtered - the estimated percent of those rows that pass the rest of the WHERE. It guessed 50%.
+  Extra - extra notes:
+    Using index condition means the city and price checks happen inside the index scan.
+    Using where means the beds check is done on each row after it is fetched, because this index does not include beds.
+    Using filesort means MySQL has to sort the rows to satisfy ORDER BY id, because this index is ordered by city and price, not by id.
+ 
+EXPLAIN ANALYZE of the same query (before):
+ 
+  -> Limit: 20 row(s)  (cost=126 rows=20) (actual time=1.64..1.87 rows=20 loops=1)
+      -> Sort row IDs: rets_property.id, limit input to 20 row(s) per chunk
+          -> Filter: (rets_property.L_Keyword2 = 4)  (actual time=0.62..1.57 rows=20 loops=1)
+              -> Index range scan on rets_property using idx_city_price
+                 over (L_City = 'Beverly Hills' AND 1000000 <= L_SystemPrice <= 5000000)
+                 (cost=126 rows=109) (actual time=0.119..1.56 rows=109 loops=1)
+ 
+Reading it from the bottom up: MySQL scans 109 index entries for Beverly Hills in the price range, fetches those rows, keeps only the 4 bed ones (20 of them), sorts by id and returns 20. So it fetched 109 rows and threw away 89.
+ 
+ 
+2. Composite indexes
+ 
+Indexes that already existed: PRIMARY(id), and single column indexes on L_ListingID, L_City, L_Zip, L_DisplayId, L_Type_, L_SystemPrice, L_Keyword2 (beds) and LM_Dec_3 (baths). There was also a composite, idx_city_price (L_City, L_SystemPrice).
+ 
+I added two:
+ 
+  idx_prop_city_beds_price (L_City, L_Keyword2, L_SystemPrice)
+  idx_prop_zip_price (L_Zip, L_SystemPrice)
+ 
+The equality columns go first and the price range goes last. I did not add another city + price index because idx_city_price already covers it.
+ 
+CREATE INDEX failed at first with ERROR 1067: Invalid default value for 'active_check'. That column has a default of 0000-00-00 00:00:00, which MySQL 8 rejects under its default sql_mode whenever the table is altered. I turned off NO_ZERO_DATE and NO_ZERO_IN_DATE for my session only, created the indexes, and did not change the table itself. My first "after" runs used the same plans as "before" because the new indexes did not exist yet, so I redid them.
+ 
+Measurements:
+ 
+  Query A, city + price
+    Before: idx_city_price, 109 rows read, 1.45 to 2.53 ms over two runs.
+    With IGNORE INDEX (idx_city_price): idx_L_City, 74 rows read, 1.17 ms.
+ 
+  Query B, ZIP + price
+    Before: idx_L_Zip, 83 rows read, 0.84 to 1.55 ms over two runs.
+    After: I have not re-run this one with idx_prop_zip_price yet.
+ 
+  Query C, city + beds + price
+    Before: idx_city_price, 109 rows read, 1.71 to 1.87 ms, cost 126.
+    After: idx_prop_city_beds_price, 20 rows read, 0.68 to 0.74 ms, cost 23.6.
+ 
+EXPLAIN ANALYZE of query C after, with no index hints (the same SQL the app sends):
+ 
+  -> Limit: 20 row(s)  (cost=23.6 rows=20) (actual time=0.492..0.683 rows=20 loops=1)
+      -> Sort row IDs: rets_property.id, limit input to 20 row(s) per chunk
+          -> Index range scan on rets_property using idx_prop_city_beds_price
+             over (L_City = 'Beverly Hills' AND L_Keyword2 = 4 AND 1000000 <= L_SystemPrice <= 5000000)
+             (cost=23.6 rows=20) (actual time=0.142..0.422 rows=20 loops=1)
+ 
+What I found:
+ 
+Query C got faster. Beds is now an equality column inside the index, so MySQL reads only the 20 rows it returns instead of 109. The cost estimate dropped from 126 to 23.6 and the time from about 1.7 ms to about 0.7 ms. MySQL chose the new index on its own.
+ 
+Query A did not get faster. When I hid idx_city_price, MySQL used idx_L_City and read 74 rows in about 1.17 ms, which is about the same as the composite at 1.45 ms. Because of ORDER BY id, a scan of the single column city index already comes out in id order, so MySQL can stop after 20 matches and does not need to sort. The composite has to read the whole price range and sort it. MySQL still estimates the composite as cheaper, but it does not account for stopping early.
+ 
+Query B: only 83 rows share a ZIP, so a ZIP + price index has very little to save.
+ 
+Differences under about 1 ms between runs of the same plan are noise, not real improvements.
+ 
+Trade-offs: every extra index uses disk space and makes writes slower, which matters for the RETS import. With only about 38,000 rows every query already finishes in 1 to 2 ms, so the gain in absolute terms is small. The benefit shows up when more equality filters are combined. The ORDER BY id also limits what an index can do, since an index that is not ordered by id needs a sort step.
+ 
+ 
+3. Request logging
+ 
+backend/middleware/requestLogger.js logs the timestamp, method, URL, status code and response time in milliseconds for every request. It measures from when the request arrives until the response finishes, so the time includes the database queries. Requests slower than 500 ms are marked SLOW.
