@@ -1,7 +1,8 @@
 const express = require('express');
 const pool = require('../db.js');
-
+const requestLogger = require('../middleware/requestLogger');
 const router = express.Router();
+router.use(requestLogger);
 
 router.param('id', (req, res, next, id) => {
     if (id.length > 255){
